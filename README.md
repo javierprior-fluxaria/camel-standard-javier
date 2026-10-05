@@ -107,17 +107,27 @@ docker ps
 ```bash
 mvn clean test
 ```
-*Ejecutará los 12 tests unitarios de validación y mappers en milisegundos.*
+*Ejecutará los 25 tests automáticos (unitarios, mappers, servicios y el Quality Gate de ArchUnit).*
 
 ### 3. Iniciar la Aplicación Middleware
+
+#### Modo Local (Host JVM):
 ```bash
 mvn spring-boot:run
 ```
 La aplicación arrancará en el puerto `8080` con el contexto servlet de Camel en `/api/*`.
 
-### 4. Comprobaciones de Salud (Actuator)
-- **Health Check:** `http://localhost:8080/actuator/health`
-- **Métricas Prometheus:** `http://localhost:8080/actuator/prometheus`
+#### Modo Contenedor Completo (Docker Compose App):
+Si prefieres ejecutar todo el stack (PostgreSQL + Kafka + Camel Middleware) en contenedores Docker:
+```bash
+docker compose -f docker-compose.app.yml up -d --build
+```
+
+### 4. Pruebas de Integración Herméticas (CI / Testcontainers)
+Ejecuta la suite de integración que levanta instancias efímeras de PostgreSQL y Kafka sin dependencias del entorno:
+```bash
+mvn verify
+```
 
 ---
 
@@ -125,24 +135,8 @@ La aplicación arrancará en el puerto `8080` con el contexto servlet de Camel e
 
 ### Opción A: Batería End-to-End Automática (Recomendado)
 Abre una terminal de PowerShell y ejecuta:
-
-**Flujo A (Síncrono REST - Pedido Individual):**
-```powershell
-.\test-orders.ps1
-```
-El script ejecutará automáticamente los 6 escenarios de negocio y resiliencia:
-- **Test 1:** Pedido Válido (`ES`, `EUR`) -> `201 Created`
-- **Test 2:** Validación de Negocio Fallida (`XX`, `INVALID`, cantidades < 0) -> `400 Bad Request` (RFC 7807)
-- **Test 3:** Idempotencia ERP / Conflicto Duplicado -> `409 Conflict` (RFC 7807)
-- **Test 4:** ERP Lento (5s delay > 3s timeout) -> `500 Internal Server Error` controlado
-- **Test 5:** ERP 500 Intermitente -> Reintentos con Backoff Exponencial y posterior `201 Created`
-- **Test 6:** ERP 503 Permanente -> Apertura de Circuit Breaker y fallback controlado
-
-**Flujo B (Asíncrono Kafka - Lote de Pedidos con Splitter, Aggregator y DLQ):**
-```powershell
-.\test-batch.ps1
-```
-Publica un lote de 4 pedidos mixtos en `orders.batch.in`, procesa cada pedido reutilizando la orquestación del Flujo A, verifica el resumen en `orders.batch.summary` y comprueba el desvío de pedidos fallidos a `orders.dlq`.
+- `.\test-orders.ps1` (6 escenarios Flujo A)
+- `.\test-batch.ps1` (Lote asíncrono con DLQ Flujo B)
 
 ### Opción B: Pruebas Manuales con Postman o cURL
 Consulta la guía completa con todos los payloads JSON y respuestas esperadas en:
@@ -150,9 +144,27 @@ Consulta la guía completa con todos los payloads JSON y respuestas esperadas en
 
 ---
 
+## 🚀 Integración Continua y Despliegue (CI/CD)
+
+El proyecto incluye configuraciones listas para producción para plataformas de CI/CD:
+
+- **GitHub Actions:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+  - Quality Gate: Compilación Java 21, Tests Unitarios y Validación de Reglas Hexagonales con **ArchUnit**.
+  - Pruebas Herméticas con **Testcontainers**.
+  - Construcción y etiquetado de imagen Docker con hash de commit y `latest`.
+- **Azure DevOps:** [`deploy/azure-pipelines.yml`](deploy/azure-pipelines.yml)
+  - Pipeline multi-stage para Azure Pipelines con cache de dependencias Maven y publicación de resultados JUnit.
+- **Dockerfile Multi-Stage:** [`deploy/Dockerfile`](deploy/Dockerfile)
+  - Imagen mínima y segura basada en `eclipse-temurin:21-jre-alpine`.
+  - Usuario de ejecución no privilegiado (`appuser:appgroup`).
+  - Flags de contenedor de alto rendimiento (`-XX:+UseZGC -XX:+ZGenerational`).
+
+---
+
 ## 📊 Observabilidad y Trazabilidad
 
 - **`X-Correlation-ID`:** Si el cliente envía la cabecera `X-Correlation-ID`, se preserva; si no, el middleware genera un UUID automáticamente.
-- **MDC (Mapped Diagnostic Context):** El `correlationId` se inyecta en cada hilo de ejecución de SLF4J, garantizando que todos los logs contengan el ID de correlación.
+- **MDC (Mapped Diagnostic Context):** El `correlationId` se inyecta en cada hilo de ejecución de SLF4J, garantizando que todos los logs contengan `[corrId:...]`.
 - **Auditoría:** Cada transición de estado del pedido se audita en la tabla `order_events` vinculada al `correlation_id`.
-- **Kafka:** Todo evento publicado en `orders.processed` incluye la cabecera `X-Correlation-ID` y clave de particionamiento por `orderId`.
+- **Kafka:** Todo evento publicado en `orders.processed`, `orders.batch.summary` y `orders.dlq` incluye la cabecera `X-Correlation-ID`.
+

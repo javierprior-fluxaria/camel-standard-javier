@@ -1,0 +1,51 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-test-and-check:
+    name: Compilacion, pruebas unitarias y ArchUnit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Compilar y ejecutar tests (unit, mappers, ArchUnit)
+        run: mvn clean test -B
+
+      - name: Pruebas de integracion hermeticas con Testcontainers
+        run: mvn verify -DskipIT\ýfalse -B
+
+      - name: Empaquetar JAR
+        run: mvn package -DskipTests -B
+
+  containerize:
+    name: Construccion y publicacion de imagen Docker
+    needs: build-test-and-check
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: false
+          tags: fluxaria/camel-standard-architecture:${{ github.sha }}, fluxaria/camel-standard-architecture:latest

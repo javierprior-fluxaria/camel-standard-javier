@@ -1,0 +1,51 @@
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  MAVEN_CACHE_FOLDER: $(Pipeline.Workspace)/.m2/repository
+  MAVEN_OPTS: '-Dmaven.repo.local=$(MAVEN_CACHE_FOLDER)'
+stages:
+  - stage: BuildAndTest
+    displayName: 'Compilación y Validación Arquitectural'
+    jobs:
+      - job: MavenBuild
+        displayName: 'Maven Build & ArchUnit'
+        steps:
+          - task: JavaToolInstaller@0
+            inputs:
+              versionSpec: '21'
+              jdkArchitectureOption: 'x64'
+              jdkSourceOption: 'PreInstalled'
+            displayName: 'Seleccionar Java 21'
+          - script: mvn clean test -B
+            displayName: 'Unit Tests & ArchUnit Quality Gate'
+          - script: mvn verify -B
+            displayName: 'Integration Tests con Testcontainers'
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/surefire-reports/*.xml'
+            displayName: 'Publicar Resultados de Tests'
+
+  - stage: Containerize
+    displayName: 'Construcción Docker'
+    dependsOn: BuildAndTest
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: DockerBuild
+        displayName: 'Build Docker Image'
+        steps:
+          - task: Docker@2
+            displayName: 'Build Image'
+            inputs:
+              command: 'build'
+              dockerfile: 'deploy/Dockerfile'
+              tags: |
+                $(Build.BuildId)
+                latest
