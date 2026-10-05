@@ -169,14 +169,18 @@ Una integración no es un script procedural de arriba a abajo. Se divide estrict
 ### Simetría Inbound / Outbound: ¿Dónde vive el Parsing y la Adaptación?
 Para garantizar que cualquier desarrollador entienda inmediatamente dónde colocar cada pieza, se establece una **simetría estricta** entre la entrada (`inbound/`) y la salida (`outbound/`):
 
-1. **`dto/` (Contratos de Frontera):** Representa cómo habla el sistema externo (request/response en JSON, XML, etc.).
+1. **`dto/` (Contratos de Frontera):** Representa cómo habla el sistema externo (request/response en JSON, eventos en Kafka, XML, etc.). Ejemplos: `OrderRequestDto`, `LegacyErpOrderDto`, `OrderKafkaEventDto`.
 2. **`mapper/` (Traductores Explícitos):**
-   * Convierte entre el formato técnico externo (o JSON de respuesta de una API como RestCountries/Frankfurter) y el **Modelo Canónico de Dominio**.
-   * **Regla estricta:** Todo parsing o extracción de atributos de respuestas externas vive en un `@Component` en `mapper/`, jamás en bloques `.process(...)` dentro de las rutas ni en el paquete `domain/`.
+   * Convierte entre el formato técnico externo (o JSON de respuesta de una API como RestCountries/Frankfurter, mapas de parámetros SQL para `camel-sql`, o eventos de Kafka) y el **Modelo Canónico de Dominio**.
+   * **Regla estricta:** Todo parsing, extracción de atributos de respuestas externas o preparación de payloads vive en un `@Component` en `mapper/`:
+     - Base de Datos: `OrderDatabaseMapper` (prepara `Map<String, Object>` para `sql:INSERT` / `sql:UPDATE`).
+     - Kafka: `OrderKafkaMapper` (transforma `Order` a `OrderKafkaEventDto`).
+     - Legacy ERP: `LegacyErpMapper` (transforma `Order` a `LegacyErpOrderDto` y gestiona la transición de estado al confirmarse).
+   * **Prohibición expresa:** Jamás escribir bloques `.process(...)` con lambdas imperativas para serializar JSON a mano (`ObjectMapper`), instanciar `HashMap` para JDBC o mutar entidades en las rutas.
 3. **`domain/` (Dominio Puro y Cálculos Funcionales):**
    * El Dominio nunca conoce contratos ni estructuras de APIs externas.
-   * Las operaciones matemáticas deterministas (como `order.applyExchangeRate(rate)`) residen en métodos de las entidades o en `domain/service/`.
-4. **`*Route.java`:** La clase Camel se limita a orquestar el transporte (HTTP, JDBC, Kafka), invocar al mapper con `.bean(...)` y gestionar errores de red.
+   * Las operaciones matemáticas deterministas (como `order.applyExchangeRate(rate)`) y transiciones de estado (`order.markAsConfirmedByErp()`) residen en métodos de las entidades o en `domain/service/`.
+4. **`*Route.java`:** La clase Camel se limita a orquestar el transporte (HTTP, JDBC, Kafka), invocar al mapper con `.bean(...)`, serializar con `.marshal().json()`, restaurar bodies con `.setBody(exchangeProperty(...))` y gestionar errores de red. Las rutas son 100% declarativas.
 
 ---
 
