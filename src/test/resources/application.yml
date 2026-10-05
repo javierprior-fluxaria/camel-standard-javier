@@ -1,0 +1,40 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: camel-standard-architecture-test
+  datasource:
+    url: jdbc:h2:mem:orders_db;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+camel:
+  springboot:
+    name: camel-standard-architecture-test
+  servlet:
+    mapping:
+      context-path: /api/*
+
+integration:
+  kafka:
+    brokers: localhost:9092
+    topic-orders-processed: orders.processed
+    topic-orders-failed: orders.failed
+  outbound:
+    country:
+      base-url: "https://restcountries.com/v3.1/alpha"
+    currency:
+      base-url: "https://open.er-api.com/v6/latest"
+    erp:
+      base-url: "http://localhost:8080/mock-erp/erp/orders"
+      connect-timeout-ms: 2000
+      read-timeout-ms: 3000
+      max-retries: 3
+      retry-delay-ms: 1000
+      backoff-multiplier: 2.0
