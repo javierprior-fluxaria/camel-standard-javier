@@ -1,0 +1,35 @@
+﻿server:
+  port: 8080
+
+spring:
+  application:
+    name: camel-standard-architecture
+
+camel:
+  springboot:
+    name: camel-standard-architecture
+    main-run-controller: true
+  servlet:
+    mapping:
+      context-path: /api/*
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+
+integration:
+  outbound:
+    erp:
+      base-url: "http://localhost:8080/mock-erp/api/orders"
+      connect-timeout-ms: 3000
+      read-timeout-ms: 10000
+      max-retries: 3
+      retry-delay-ms: 1000
+      backoff-multiplier: 2.0
