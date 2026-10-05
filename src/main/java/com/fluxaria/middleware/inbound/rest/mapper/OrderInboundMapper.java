@@ -61,7 +61,7 @@ public class OrderInboundMapper {
                 order.getCountryDetails() != null ? order.getCountryDetails().officialName() : null,
                 order.getCountryDetails() != null ? order.getCountryDetails().region() : null,
                 order.getCountryDetails() != null ? order.getCountryDetails().phonePrefix() : null,
-                order.getUpdatedAt()
+                order.getUpdatedAt() != null ? order.getUpdatedAt().toString() : null
         );
     }
 }

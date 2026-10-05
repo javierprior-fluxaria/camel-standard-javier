@@ -98,6 +98,11 @@ public class Order {
         this.updatedAt = Instant.now();
     }
 
+    public void markAsConfirmedByErp() {
+        this.status = OrderStatus.CONFIRMED;
+        this.updatedAt = Instant.now();
+    }
+
     public void markFailed() {
         this.status = OrderStatus.FAILED;
         this.updatedAt = Instant.now();

@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fluxaria.middleware.domain.model.OrderStatus;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 
 /**
  * Contrato de salida devuelto al cliente tras procesar el pedido (HTTP 201 Created).
@@ -43,6 +42,6 @@ public record OrderResponseDto(
         String phonePrefix,
 
         @JsonProperty("processedAt")
-        Instant processedAt
+        String processedAt
 ) {
 }
