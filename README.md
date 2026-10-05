@@ -38,31 +38,43 @@ camel-standard-architecture/
 ├── docs/                               # Documentación, ADRs y contratos de prueba
 │   ├── adr/                            # Architecture Decision Records (ADR-001 al ADR-007)
 │   ├── architecture-decisions.md       # Análisis comparativo y alternativas descartadas
-│   └── test.md                         # Guía de pruebas con payloads para Postman
+│   └── test.md                         # Guía de pruebas con payloads para Postman y Kafka
 ├── src/main/java/com/fluxaria/middleware/
 │   ├── Application.java                # Spring Boot + Apache Camel Entrypoint
-│   ├── domain/                         # Núcleo puro de negocio
-│   │   ├── model/                      # Order, OrderItem, CountryDetails, OrderStatus
+│   ├── domain/                         # Núcleo puro de negocio (Java 21 agnóstico a frameworks)
+│   │   ├── model/                      # Order, OrderItem, CountryDetails, OrderStatus, BatchSummary
 │   │   └── service/                    # OrderBusinessValidator (reglas funcionales en memoria)
-│   ├── inbound/rest/                   # Adaptador REST (/api/v1/orders)
-│   │   ├── dto/                        # OrderRequestDto, OrderResponseDto
-│   │   ├── mapper/                     # OrderInboundMapper
-│   │   └── OrderRestRoute.java         # Expone endpoint REST con Camel Servlet
-│   ├── orchestration/                  # Capa de proceso
-│   │   └── OrderProcessRoute.java      # Orquestador del pedido internacional
-│   ├── outbound/                       # Adaptadores de salida
+│   ├── inbound/                        # Capa Experience (Adaptadores de entrada)
+│   │   ├── kafka/                      # Consumidor asíncrono de lotes (topic orders.batch.in)
+│   │   │   ├── dto/                    # OrderBatchItemDto, OrderBatchItemProductDto
+│   │   │   ├── mapper/                 # OrderBatchInboundMapper (Kafka DTO -> Order)
+│   │   │   └── OrderBatchKafkaConsumerRoute.java
+│   │   └── rest/                       # API REST sincrona (/api/v1/orders)
+│   │       ├── dto/                    # OrderRequestDto, OrderResponseDto, OrderItemDto
+│   │       ├── mapper/                 # OrderInboundMapper (REST DTO -> Order)
+│   │       └── OrderRestRoute.java     # Endpoint REST con Camel Servlet
+│   ├── orchestration/                  # Capa Process (Orquestación agnóstica a transporte)
+│   │   ├── OrderProcessRoute.java      # Orquestador del pedido internacional individual (Flujo A)
+│   │   ├── OrderBatchRoute.java        # Orquestador de lotes (Flujo B: Splitter + Aggregator + DLQ)
+│   │   └── service/                    # Lógica de proceso en memoria
+│   │       └── BatchAggregationService.java # Agregador EIP del balance del lote
+│   ├── outbound/                       # Capa System (Adaptadores de salida hacia sistemas externos)
 │   │   ├── country/                    # Enriquecimiento RestCountries (mapper + route)
 │   │   ├── currency/                   # Conversión de divisa a EUR (mapper + route)
 │   │   ├── database/                   # Persistencia PostgreSQL (OrderDatabaseMapper + OrderDatabaseRoute)
 │   │   ├── erp/                        # Integración Legacy ERP con Circuit Breaker y Retries
-│   │   └── kafka/                      # Publicación en Kafka topic orders.processed (OrderKafkaMapper + Route)
+│   │   └── kafka/                      # Publicación en Kafka (OrderKafkaMapper + Route)
+│   │       ├── dto/                    # OrderKafkaEventDto, OrderBatchSummaryEventDto
+│   │       ├── mapper/                 # OrderKafkaMapper
+│   │       └── OrderKafkaProducerRoute.java # Publica en orders.processed, orders.batch.summary y orders.dlq
 │   ├── backend/mock/                   # Simulador desacoplado del ERP Legacy
 │   └── shared/                         # Cross-cutting (BaseRouteBuilder, MDC Correlation, ErrorResponse)
 ├── src/main/resources/
-│   ├── application.yml                 # Configuración tipada externa
+│   ├── application.yml                 # Configuración tipada externa (DB, Kafka, Resiliencia)
 │   └── schema.sql                      # DDL de PostgreSQL (orders, order_events)
 ├── docker-compose.yml                  # Infraestructura local: PostgreSQL 16 y Kafka KRaft
-└── test-orders.ps1                     # Suite automatizada de pruebas E2E (PowerShell 5.1 y 7+)
+├── test-orders.ps1                     # Suite automatizada Flujo A (REST síncrono)
+└── test-batch.ps1                      # Suite automatizada Flujo B (Kafka asíncrono por lotes)
 ```
 
 ---
@@ -113,6 +125,8 @@ La aplicación arrancará en el puerto `8080` con el contexto servlet de Camel e
 
 ### Opción A: Batería End-to-End Automática (Recomendado)
 Abre una terminal de PowerShell y ejecuta:
+
+**Flujo A (Síncrono REST - Pedido Individual):**
 ```powershell
 .\test-orders.ps1
 ```
@@ -123,6 +137,12 @@ El script ejecutará automáticamente los 6 escenarios de negocio y resiliencia:
 - **Test 4:** ERP Lento (5s delay > 3s timeout) -> `500 Internal Server Error` controlado
 - **Test 5:** ERP 500 Intermitente -> Reintentos con Backoff Exponencial y posterior `201 Created`
 - **Test 6:** ERP 503 Permanente -> Apertura de Circuit Breaker y fallback controlado
+
+**Flujo B (Asíncrono Kafka - Lote de Pedidos con Splitter, Aggregator y DLQ):**
+```powershell
+.\test-batch.ps1
+```
+Publica un lote de 4 pedidos mixtos en `orders.batch.in`, procesa cada pedido reutilizando la orquestación del Flujo A, verifica el resumen en `orders.batch.summary` y comprueba el desvío de pedidos fallidos a `orders.dlq`.
 
 ### Opción B: Pruebas Manuales con Postman o cURL
 Consulta la guía completa con todos los payloads JSON y respuestas esperadas en:

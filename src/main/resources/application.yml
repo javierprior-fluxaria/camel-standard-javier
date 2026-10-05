@@ -41,6 +41,10 @@ integration:
     brokers: ${KAFKA_BROKERS:localhost:9092}
     topic-orders-processed: orders.processed
     topic-orders-failed: orders.failed
+    topic-orders-batch-in: ${KAFKA_TOPIC_BATCH_IN:orders.batch.in}
+    topic-orders-batch-summary: ${KAFKA_TOPIC_BATCH_SUMMARY:orders.batch.summary}
+    topic-orders-dlq: ${KAFKA_TOPIC_DLQ:orders.dlq}
+    batch-consumer-group: ${KAFKA_BATCH_GROUP:fluxaria-orders-batch-group}
   outbound:
     country:
       base-url: "https://restcountries.com/v3.1/alpha"

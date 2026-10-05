@@ -165,3 +165,78 @@
   ]
 }
 ```
+
+---
+
+## B · FLUJO ASÍNCRONO: LOTE DE PEDIDOS (KAFKA)
+
+### Publicación y Verificación de Lotes
+
+El flujo B se activa enviando un array JSON de pedidos al topic `orders.batch.in`.
+Puedes probarlo automáticamente con:
+```powershell
+.\test-batch.ps1
+```
+
+O manualmente publicando el lote en Kafka:
+```bash
+docker exec -i fluxaria-kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic orders.batch.in
+```
+
+#### Payload del Lote de Ejemplo (`orders.batch.in`):
+```json
+[
+  {
+    "orderId": "BATCH-ORD-01",
+    "customerId": "CUST-OK",
+    "country": "ES",
+    "currency": "EUR",
+    "items": [
+      { "productId": "SHIRT-RED", "quantity": 1, "unitPrice": 40.00 }
+    ]
+  },
+  {
+    "orderId": "BATCH-ORD-02",
+    "customerId": "CUST-OK",
+    "country": "XX",
+    "currency": "INVALID",
+    "items": [
+      { "productId": "BAD-ITEM", "quantity": -2, "unitPrice": 0.00 }
+    ]
+  },
+  {
+    "orderId": "BATCH-ORD-03",
+    "customerId": "CUST-OK",
+    "country": "FR",
+    "currency": "EUR",
+    "items": [
+      { "productId": "JEANS-BLUE", "quantity": 2, "unitPrice": 50.00 }
+    ]
+  },
+  {
+    "orderId": "BATCH-ORD-04",
+    "customerId": "CUST-DUP",
+    "country": "DE",
+    "currency": "EUR",
+    "items": [
+      { "productId": "JACKET-BLACK", "quantity": 1, "unitPrice": 90.00 }
+    ]
+  }
+]
+```
+
+#### Resumen Esperado en `orders.batch.summary`:
+```json
+{
+  "batchId": "BATCH-XXXX",
+  "totalOrders": 4,
+  "processedCount": 2,
+  "failedCount": 2,
+  "totalEur": 140.00,
+  "processedAt": "2026-10-05T...",
+  "correlationId": "..."
+}
+```
+
+#### Mensajes Esperados en `orders.dlq`:
+Los 2 pedidos fallidos (`BATCH-ORD-02` por validación y `BATCH-ORD-04` por conflicto de idempotencia ERP) se desvían a `orders.dlq` con cabeceras `X-Failure-Reason`, `X-Failed-At` y el payload original intacto.

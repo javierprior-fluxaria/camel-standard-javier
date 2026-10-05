@@ -13,6 +13,7 @@ Cada desarrollador debe consultar estos registros para asegurar que cualquier nu
 | **ADR-005** | Manejo de Errores RFC 7807 y Patrones de Resiliencia | Aceptado | [ADR-005-rfc7807-error-handling-and-resilience.md](./ADR-005-rfc7807-error-handling-and-resilience.md) |
 | **ADR-006** | Observabilidad Transversal y Correlación Distribuida (MDC + W3C) | Aceptado | [ADR-006-observability-and-distributed-tracing.md](./ADR-006-observability-and-distributed-tracing.md) |
 | **ADR-007** | Estrategia de Pruebas Piramidal y Automatización E2E | Aceptado | [ADR-007-testing-strategy.md](./ADR-007-testing-strategy.md) |
+| **ADR-008** | Orquestación Asíncrona de Lotes (Splitter + Aggregator) y Política DLQ | Aceptado | [ADR-008-batch-processing-and-dlq-orchestration.md](./ADR-008-batch-processing-and-dlq-orchestration.md) |
 
 ---
 Para una justificación exhaustiva, análisis comparativo y alternativas descartadas en profundidad, consultar [`docs/architecture-decisions.md`](../architecture-decisions.md).

@@ -87,4 +87,23 @@ class OutboundMappersTest {
         Order confirmedOrder = erpMapper.handleSuccess(order);
         assertEquals(OrderStatus.CONFIRMED, confirmedOrder.getStatus());
     }
+
+    @Test
+    @DisplayName("OrderKafkaMapper: mapea BatchSummary a OrderBatchSummaryEventDto")
+    void testBatchSummaryEventDto() {
+        OrderKafkaMapper kafkaMapper = new OrderKafkaMapper();
+        com.fluxaria.middleware.domain.model.BatchSummary summary = new com.fluxaria.middleware.domain.model.BatchSummary(
+                "BATCH-01", 5, 4, 1, new BigDecimal("250.00"), "corr-789"
+        );
+
+        var dto = kafkaMapper.toBatchSummaryEventDto(summary);
+        assertNotNull(dto);
+        assertEquals("BATCH-01", dto.batchId());
+        assertEquals(5, dto.totalOrders());
+        assertEquals(4, dto.processedCount());
+        assertEquals(1, dto.failedCount());
+        assertEquals(new BigDecimal("250.00"), dto.totalEur());
+        assertEquals("corr-789", dto.correlationId());
+        assertNotNull(dto.processedAt());
+    }
 }
