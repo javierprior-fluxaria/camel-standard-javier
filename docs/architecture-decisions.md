@@ -439,3 +439,65 @@ Este es el manual del desarrollador del "primer día". El desarrollador no impro
    │   • Test unitario del validador y mapper (sin Camel)
    │   • Test de integración end-to-end con WireMock simulando el backend
 ```
+
+---
+
+# 11. Limitaciones Técnicas del Modelo Arquitectural y Trade-offs Estructurales
+
+Todo estándar arquitectónico representa un conjunto deliberado de compromisos (*trade-offs*). Esta sección documenta con rigor técnico las **limitaciones estructurales** y los **puntos de fricción** identificados en este blueprint para que los equipos de arquitectura y desarrollo puedan evaluar su aplicabilidad y coste de mantenimiento.
+
+---
+
+### A. Proliferación y Duplicidad de DTOs (Explosión Combinatoria vs Desacoplamiento)
+
+* **El Trade-off:** El estándar impone que cada canal de entrada (`inbound/{canal}`) y cada sistema de salida (`outbound/{sistema}`) defina sus propios contratos DTO específicos, completamente desacoplados del modelo canónico.
+* **La Limitación / Fricción:**
+  1. **Duplicación estructural masiva:** Si la organización expone un mismo concepto de negocio a través de múltiples canales (ej. API REST, colas Kafka, eventos RabbitMQ, endpoints SOAP heredados), se produce una explosión de clases DTO y traductores `*Mapper` casi idénticos entre sí.
+  2. **Sobrecarga de mantenimiento:** La modificación o adición de un nuevo campo transversal de negocio obliga a propagar el cambio en cascada a través de decenas de DTOs y métodos de mapeo, violando en la práctica el principio **DRY (Don't Repeat Yourself)** en favor del aislamiento de contratos.
+* **Alternativa a evaluar en el equipo:** Valorar si para canales homogéneos de la misma compañía conviene definir un subpaquete común de DTOs corporativos (`inbound/dto/` canónico), asumiendo el acoplamiento entre canales a cambio de reducir drásticamente el código repetido y el coste de refactorización.
+
+---
+
+### B. Fricción en la Frontera entre Dominio Puro y Lógica de Orquestación
+
+* **El Trade-off:** El núcleo de negocio (`domain/`) debe ser 100% agnóstico a frameworks (cero dependencias de Apache Camel, Spring o Jackson).
+* **La Limitación / Fricción:**
+  1. **Patrones EIP con dependencias de API:** Cuando un flujo requiere lógica de proceso en memoria que depende de interfaces del framework de integración (como `AggregationStrategy` en un Aggregator, evaluadores dinámicos de rutas o `Processors` complejos), esta lógica no puede residir en `domain/` sin romper la pureza del modelo.
+  2. **Dilema de ubicación:** Si no puede ir en `domain/`, esconderla como clases internas anónimas dentro de las rutas degrada la testabilidad unitaria. Esto obliga a introducir una subcapa de servicios de aplicación/orquestación (`orchestration/service/`), añadiendo complejidad a la estructura de paquetes y generando debates recurrentes sobre qué es "regla de dominio pura" y qué es "lógica de proceso de integración".
+
+---
+
+### C. Persistencia Volátil de Patrones de Integración con Estado (Stateful EIPs)
+
+* **El Trade-off:** Por defecto, los Enterprise Integration Patterns (EIP) con estado en Apache Camel (tales como Aggregator, Splitter con agregación consolidada, Resequencer o Idempotent Consumer en memoria) operan sobre la memoria RAM volátil de la JVM.
+* **La Limitación en Producción:**
+  1. **Pérdida de estado ante caídas:** En entornos cloud-native (Kubernetes) con escalado horizontal y pods efímeros, si un contenedor se reinicia o es desalojado por el planificador a mitad del procesamiento de un lote o agregación, el estado acumulado en memoria se pierde irremediablemente.
+  2. **Sobrecarga de infraestructura:** Superar esta limitación exige incorporar repositorios de persistencia externos (`JdbcAggregationRepository` en base de datos relacional o clusters de Redis/Infinispan), aumentando la complejidad operacional y la latencia de I/O por cada mensaje procesado.
+
+---
+
+### D. Sobrecarga de Mapeo y Presión sobre el Garbage Collector (Overhead de Memoria)
+
+* **El Trade-off:** El principio de simetría estricta exige que todo mensaje sufra transformaciones formales en cada frontera:
+  $$\text{Payload Externo} \longrightarrow \text{DTO Inbound} \longrightarrow \text{Modelo Canónico} \longrightarrow \text{DTO Outbound} \longrightarrow \text{Payload Backend}$$
+* **La Limitación en Escenarios de Alto Rendimiento:**
+  1. **Asignación masiva de objetos:** En flujos de integración masiva (*high-throughput*) o baja latencia (*low-latency*), instanciar múltiples capas intermedias de DTOs y Records inmutables por cada transacción genera una alta tasa de asignación de memoria en el Heap de la JVM, provocando pausas de Garbage Collection más frecuentes.
+  2. **Incompatibilidad con Streaming Puro:** Para transferencias de archivos masivos o payloads gigantescos (cientos de megabytes), el patrón DTO tipado en memoria no es viable y obliga a recurrir a streaming de bytes sin parsear, rompiendo la uniformidad del blueprint.
+
+---
+
+### E. Disparidad en la Estrategia de Errores (Síncrono vs Asíncrono)
+
+* **El Trade-off:** El blueprint estandariza el manejo de errores corporativo bajo la especificación **RFC 7807 (Problem Details)**, que está diseñada nativamente para APIs HTTP síncronas.
+* **La Limitación en Mensajería y Event-Driven:**
+  1. **Incompatibilidad de conceptos:** En canales asíncronos (brokers de eventos, colas o procesamiento por lotes), los conceptos de códigos de estado HTTP (`400`, `409`, `500`) y respuestas síncronas no tienen sentido semántico.
+  2. **Dualidad de mecanismos:** El sistema se ve forzado a mantener dos estrategias dispares: traducción a JSON RFC 7807 para HTTP vs enrutamiento a Dead Letter Queue (DLQ) con cabeceras técnicas (`X-Failure-Reason`, `X-Failed-At`) para mensajería. Reutilizar la misma ruta de proceso entre ambos mundos requiere interceptores que distingan si la invocación proviene de un canal síncrono o asíncrono.
+
+---
+
+### F. Ausencia de Barreras Físicas en el Monomódulo (Riesgo de Erosión de Arquitectura)
+
+* **El Trade-off:** Se eligió un proyecto mono-módulo Maven para evitar la sobrecarga de dependencias y tiempos de compilación de proyectos multi-módulo.
+* **La Limitación de Gobierno:**
+  1. **Falta de aislamiento a nivel de compilador:** El compilador de Java dentro de un único módulo no impide técnicamente que un desarrollador cometa atajos (ej. que una ruta de entrada invoque directamente una ruta de salida, o que un adaptador consuma directamente un DTO de otro adaptador).
+  2. **Dependencia estricta de auditoría:** Mantener la pureza de la arquitectura en equipos numerosos depende exclusivamente de la disciplina de los desarrolladores o de la incorporación obligatoria de herramientas de análisis estático de reglas arquitecturales (como **ArchUnit** en el pipeline de CI).
