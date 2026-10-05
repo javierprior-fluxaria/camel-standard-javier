@@ -25,7 +25,7 @@ jobs:
         run: mvn clean test -B
 
       - name: Pruebas de integracion hermeticas con Testcontainers
-        run: mvn verify -DskipIT\ýfalse -B
+        run: mvn verify -Dno-sponsor -B
 
       - name: Empaquetar JAR
         run: mvn package -DskipTests -B

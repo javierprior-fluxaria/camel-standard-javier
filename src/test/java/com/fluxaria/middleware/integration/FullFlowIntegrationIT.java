@@ -1,5 +1,7 @@
 package com.fluxaria.middleware.integration;
 
+import com.fluxaria.middleware.inbound.rest.dto.OrderItemDto;
+import com.fluxaria.middleware.inbound.rest.dto.OrderRequestDto;
 import org.apache.camel.ProducerTemplate;
 import org.apache.camel.test.spring.junit5.CamelSpringBootTest;
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +17,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -39,7 +43,7 @@ public class FullFlowIntegrationIT {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
-        registry.add("middleware.kafka.brokers", kafka::getBootstrapServers);
+        registry.add("integration.kafka.brokers", kafka::getBootstrapServers);
     }
 
     @Autowired
@@ -52,25 +56,18 @@ public class FullFlowIntegrationIT {
     @DisplayName("Debe procesar e insertar en base de datos y publicar en Kafka con contenedores efimeros")
     void testEndToEndContainerizedFlow() {
         String correlationId = UUID.randomUUID().toString();
-        String jsonPayload = """
-            {
-                "orderId": "ORD-CI-TEST-001",
-                "customer": "Testcontainers Customer",
-                "countryCode": "ES",
-                "items": [
-                    {
-                        "productId": "PROD-CI-1",
-                        "quantity": 2,
-                        "unitPrice": 50.0,
-                        "currency": "EUR"
-                    }
-                ]
-            }
-            """;
+        OrderItemDto item = new OrderItemDto("PROD-CI-1", 2, new BigDecimal("50.00"));
+        OrderRequestDto request = new OrderRequestDto(
+                "ORD-CI-TEST-001",
+                "Customer Testcontainers",
+                "ES",
+                "EUR",
+                List.of(item)
+        );
 
         Object response = producerTemplate.requestBodyAndHeader(
-                "direct:orchestration.order.process",
-                jsonPayload,
+                "direct:inbound.rest.process-order",
+                request,
                 "X-Correlation-ID",
                 correlationId
         );
