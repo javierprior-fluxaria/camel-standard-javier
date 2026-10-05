@@ -1,9 +1,21 @@
-﻿server:
+server:
   port: 8080
 
 spring:
   application:
     name: camel-standard-architecture
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/orders_db}
+    username: ${DB_USER:fluxaria}
+    password: ${DB_PASSWORD:fluxaria_password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 3000
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
 
 camel:
   springboot:
@@ -25,11 +37,23 @@ management:
         enabled: true
 
 integration:
+  kafka:
+    brokers: ${KAFKA_BROKERS:localhost:9092}
+    topic-orders-processed: orders.processed
+    topic-orders-failed: orders.failed
   outbound:
+    country:
+      base-url: "https://restcountries.com/v3.1/alpha"
+    currency:
+      base-url: "https://open.er-api.com/v6/latest"
     erp:
-      base-url: "http://localhost:8080/mock-erp/api/orders"
-      connect-timeout-ms: 3000
-      read-timeout-ms: 10000
+      base-url: ${ERP_BASE_URL:http://localhost:8080/api/mock-erp/erp/orders}
+      connect-timeout-ms: 2000
+      read-timeout-ms: 3000
       max-retries: 3
       retry-delay-ms: 1000
       backoff-multiplier: 2.0
+      circuit-breaker:
+        failure-rate-threshold: 50
+        wait-duration-in-open-state-ms: 5000
+        sliding-window-size: 5
