@@ -16,14 +16,26 @@ Esta guía define el procedimiento obligatorio, secuencial y estandarizado para 
 
 1. **Separación Estricta en 3 Capas (API-Led / Hexagonal):**
    - **`inbound/{canal}`**: Solo traduce de protocolo externo (REST/JSON, SOAP/XML, Kafka) a Modelo Canónico.
-   - **`orchestration/{caso}`**: Orquesta el flujo puro usando únicamente el Modelo Canónico. No conoce DTOs de transporte.
+   - **`orchestration/`**: Orquesta el flujo puro usando únicamente el Modelo Canónico. No conoce DTOs de transporte.
    - **`outbound/{sistema}`**: Traduce del Modelo Canónico al contrato propio del sistema destino (ERP, BD, Kafka, APIs).
-2. **Regla de Simetría en Mappers:**
+   - **Prohibición de atajos Inbound -> Outbound:** Un adaptador Inbound NUNCA debe invocar adaptadores de salida (ni topics de respuesta ni colas DLQ). Todo flujo de negocio o lote pasa obligatoriamente por la capa de orquestación.
+2. **Inbound Asíncrono 100% Tipado (Cero Payloads en Crudo):**
+   - Los adaptadores de brokers de mensajería (Kafka, JMS, RabbitMQ) deben definir sus DTOs de contrato en `inbound/{canal}/dto/`.
+   - La deserialización (`.unmarshal()`) ocurre en el Inbound Adapter antes de delegar a orquestación. Está prohibido pasar `String` o árboles Jackson a la orquestación.
+   - Si un mensaje entrante tiene un JSON corrupto que no se puede deserializar, Inbound captura la excepción y lo desvía a la DLQ de inmediato con cabecera `X-Failure-Reason`.
+3. **Ubicación de Lógica de Proceso (`orchestration/service/` vs `domain/`):**
+   - Las clases que contienen lógica de proceso o workflow con dependencias de Apache Camel (ej. `AggregationStrategy`, agregadores en memoria, ruteadores dinámicos) deben situarse en **`orchestration/service/`** como `@Component` de Spring.
+   - El paquete `domain/` debe mantenerse estrictamente puro (cero imports de Camel o Spring).
+   - La raíz de `orchestration/` debe mantenerse plana (`OrderProcessRoute.java`, `OrderBatchRoute.java`), evitando la proliferación de subdirectorios por cada caso de uso.
+4. **Regla de Simetría en Mappers:**
    - Todo parsing, transformación o preparación de parámetros vive en un `@Component` Spring en `{inbound|outbound}/{subsistema}/mapper/`.
    - **Prohibido:** Lambdas `.process(exchange -> { ... })` con `ObjectMapper`, creación de `HashMap` manuales o mutaciones imperativas dentro del DSL de Camel.
-3. **Dominio Puro y Agnóstico:**
+5. **Dominio Puro y Agnóstico:**
    - `domain/model/` y `domain/service/` contienen Java 21 puro (Records/POJOs). Cero dependencias de Camel, Jackson, Spring o JDBC.
-4. **Resiliencia y Errores Estandarizados:**
+6. **Patrón Splitter con Aislamiento y Política DLQ ("Nada se pierde en silencio"):**
+   - En procesamiento de lotes o colecciones, aislar cada elemento con `.stopOnException(false)` y bloques `doTry/doCatch` para que un pedido erróneo no cancele el lote.
+   - Todo elemento fallido se desvía a `direct:outbound.kafka.dlq` preservando el payload original, timestamp (`X-Failed-At`) y el motivo exacto en `X-Failure-Reason`.
+7. **Resiliencia y Errores Estandarizados:**
    - Toda ruta extiende de `BaseRouteBuilder` para heredar el manejo de errores RFC 7807 (`Problem Details`) y trazabilidad MDC (`correlationId`).
 
 ---
@@ -96,9 +108,9 @@ public class Order {
 
 ---
 
-### Paso 5: Orquestador del Proceso (`orchestration/{caso}/`)
-1. Crear `{Caso}ProcessRoute.java` extendiendo `BaseRouteBuilder`.
-2. Conectar las etapas de negocio en orden secuencial usando el modelo canónico:
+### Paso 5: Orquestador del Proceso (`orchestration/`)
+1. Crear `{Caso}Route.java` en la raíz de `orchestration/` extendiendo `BaseRouteBuilder`.
+2. **Flujo Unitario:** Conectar las etapas de negocio en orden secuencial usando el modelo canónico:
    ```java
    from(DIRECT_PROCESS)
        .routeId("orchestration.order.process")
@@ -110,6 +122,13 @@ public class Order {
        .to("direct:outbound.database.save-final")
        .to("direct:outbound.kafka.publish");
    ```
+3. **Flujos Asíncronos / Lotes (EIP Splitter + Aggregator):**
+   - Mantener la ruta en la raíz: `orchestration/OrderBatchRoute.java` (sin subdirectorios anidados).
+   - Recibir la colección de dominio (`List<Order>`) deserializada por el adaptador Inbound.
+   - Situar la clase agregadora (`AggregationStrategy`) en **`orchestration/service/`**.
+   - Invocar el orquestador unitario dentro del Splitter: `.to(OrderProcessRoute.DIRECT_PROCESS)`.
+   - Aislar errores de cada elemento con `.stopOnException(false)` y desviar a DLQ (`direct:outbound.kafka.dlq`).
+   - Al completar la agregación, publicar el resumen hacia el adaptador de salida (`direct:outbound.kafka.batch-summary`).
 
 ---
 
