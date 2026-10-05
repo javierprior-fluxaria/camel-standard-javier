@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: camel-standard-architecture
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/orders_db}
     username: ${DB_USER:fluxaria}
@@ -16,6 +18,10 @@ spring:
     init:
       mode: always
       schema-locations: classpath:schema.sql
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [corrId:%X{correlationId}] - %msg%n"
 
 camel:
   springboot:
@@ -35,6 +41,11 @@ management:
       show-details: always
       probes:
         enabled: true
+    prometheus:
+      enabled: true
+  health:
+    circuitbreakers:
+      enabled: true
 
 integration:
   kafka:

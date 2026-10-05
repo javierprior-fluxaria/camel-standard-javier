@@ -76,6 +76,7 @@ public class LegacyErpOutboundRoute extends BaseRouteBuilder {
                     .end()
                     .setHeader(Exchange.HTTP_METHOD, constant("POST"))
                     .setHeader(Exchange.CONTENT_TYPE, constant("application/json"))
+                    .setHeader("X-Correlation-ID", simple("${exchangeProperty.correlationId}"))
                     .toD(erpBaseUrl + "?bridgeEndpoint=true&throwExceptionOnFailure=true&httpClient.connectTimeout=" + connectTimeout + "&httpClient.responseTimeout=" + readTimeout)
                 .end()
 
