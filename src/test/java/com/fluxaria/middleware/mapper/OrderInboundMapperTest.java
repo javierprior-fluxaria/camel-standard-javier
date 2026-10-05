@@ -75,7 +75,7 @@ class OrderInboundMapperTest {
         Order domainOrder = mapper.toDomain(requestDto);
 
         domainOrder.enrichCountry(new CountryDetails("United States of America", "Americas", "USD", "+1"));
-        domainOrder.applyCurrencyConversion(new BigDecimal("0.92"), new BigDecimal("92.00"));
+        domainOrder.applyExchangeRate(new BigDecimal("0.920000"));
         domainOrder.markConfirmed();
 
         OrderResponseDto responseDto = mapper.toResponseDto(domainOrder);
@@ -85,7 +85,7 @@ class OrderInboundMapperTest {
         assertEquals(OrderStatus.CONFIRMED, responseDto.status());
         assertEquals(new BigDecimal("100.00"), responseDto.totalOriginal());
         assertEquals(new BigDecimal("92.00"), responseDto.totalEur());
-        assertEquals(new BigDecimal("0.92"), responseDto.exchangeRate());
+        assertEquals(new BigDecimal("0.920000"), responseDto.exchangeRate());
         assertEquals("United States of America", responseDto.countryName());
         assertEquals("+1", responseDto.phonePrefix());
     }

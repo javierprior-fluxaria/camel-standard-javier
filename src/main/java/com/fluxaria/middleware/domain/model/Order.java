@@ -1,6 +1,7 @@
 package com.fluxaria.middleware.domain.model;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
@@ -65,7 +66,7 @@ public class Order {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
-    // --- Métodos de transición de estado funcional del Dominio ---
+    // --- Métodos de transición de estado y lógica funcional del Dominio ---
 
     public void markValidated() {
         this.status = OrderStatus.VALIDATED;
@@ -77,9 +78,12 @@ public class Order {
         this.updatedAt = Instant.now();
     }
 
-    public void applyCurrencyConversion(BigDecimal exchangeRate, BigDecimal totalEur) {
-        this.exchangeRate = Objects.requireNonNull(exchangeRate, "exchangeRate cannot be null");
-        this.totalEur = Objects.requireNonNull(totalEur, "totalEur cannot be null");
+    /**
+     * Aplica la tasa de cambio al pedido calculando el total en EUR con redondeo estándar del negocio.
+     */
+    public void applyExchangeRate(BigDecimal rate) {
+        this.exchangeRate = Objects.requireNonNull(rate, "exchangeRate cannot be null");
+        this.totalEur = this.totalOriginal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
         this.status = OrderStatus.ENRICHED;
         this.updatedAt = Instant.now();
     }

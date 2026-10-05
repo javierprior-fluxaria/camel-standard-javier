@@ -166,6 +166,20 @@ Una integración no es un script procedural de arriba a abajo. Se divide estrict
    .to("http://erp-host/orders")
    ```
 
+### Simetría Inbound / Outbound: ¿Dónde vive el Parsing y la Adaptación?
+Para garantizar que cualquier desarrollador entienda inmediatamente dónde colocar cada pieza, se establece una **simetría estricta** entre la entrada (`inbound/`) y la salida (`outbound/`):
+
+1. **`dto/` (Contratos de Frontera):** Representa cómo habla el sistema externo (request/response en JSON, XML, etc.).
+2. **`mapper/` (Traductores Explícitos):**
+   * Convierte entre el formato técnico externo (o JSON de respuesta de una API como RestCountries/Frankfurter) y el **Modelo Canónico de Dominio**.
+   * **Regla estricta:** Todo parsing o extracción de atributos de respuestas externas vive en un `@Component` en `mapper/`, jamás en bloques `.process(...)` dentro de las rutas ni en el paquete `domain/`.
+3. **`domain/` (Dominio Puro y Cálculos Funcionales):**
+   * El Dominio nunca conoce contratos ni estructuras de APIs externas.
+   * Las operaciones matemáticas deterministas (como `order.applyExchangeRate(rate)`) residen en métodos de las entidades o en `domain/service/`.
+4. **`*Route.java`:** La clase Camel se limita a orquestar el transporte (HTTP, JDBC, Kafka), invocar al mapper con `.bean(...)` y gestionar errores de red.
+
+---
+
 ### ¿Por qué Java DSL para las Rutas?
 * Autocompletado del IDE, refactorización segura con una tecla (`F6` / `Shift+F6`), detección de errores tipográficos en nombres de componentes en compilación y soporte completo de depuración paso a paso (breakpoints).
 
