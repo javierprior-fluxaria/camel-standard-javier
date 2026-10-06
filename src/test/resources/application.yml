@@ -32,7 +32,7 @@ integration:
     currency:
       base-url: "https://open.er-api.com/v6/latest"
     erp:
-      base-url: "http://localhost:8080/mock-erp/erp/orders"
+      base-url: "http://localhost:8080/api/mock-erp/erp/orders"
       connect-timeout-ms: 2000
       read-timeout-ms: 3000
       max-retries: 3

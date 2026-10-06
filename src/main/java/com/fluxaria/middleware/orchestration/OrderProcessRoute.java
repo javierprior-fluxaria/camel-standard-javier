@@ -4,6 +4,7 @@ import com.fluxaria.middleware.domain.service.OrderBusinessValidator;
 import com.fluxaria.middleware.outbound.country.CountryEnricherRoute;
 import com.fluxaria.middleware.outbound.currency.CurrencyConversionRoute;
 import com.fluxaria.middleware.shared.error.BaseRouteBuilder;
+import com.fluxaria.middleware.shared.logging.CorrelationIdProcessor;
 import org.apache.camel.LoggingLevel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -19,12 +20,17 @@ public class OrderProcessRoute extends BaseRouteBuilder {
     public static final String DIRECT_PROCESS = "direct:" + ROUTE_ID;
 
     @Autowired
+    private CorrelationIdProcessor correlationIdProcessor;
+
+    @Autowired
     private OrderBusinessValidator businessValidator;
 
     @Override
     public void setupRoutes() {
         from(DIRECT_PROCESS)
                 .routeId(ROUTE_ID)
+                // 1. Asegurar identificador de correlacion y MDC
+                .process(correlationIdProcessor)
                 .log(LoggingLevel.INFO, "Iniciando orquestacion de negocio para pedido: ${body.orderId}")
 
                 // 2. Validacion de negocio pura (Esquema, ISO pais, ISO moneda, cantidades > 0)
