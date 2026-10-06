@@ -10,7 +10,7 @@ El middleware debe ser comprensible y mantenible tanto para desarrolladores juni
 Adoptar un proyecto mono-módulo Maven estructurado en capas concéntricas (Hexagonal / API-Led Connectivity):
 - **`domain/`**: Núcleo canónico puro (`model/` con entidades y `service/` con validaciones).
 - **`inbound/{canal}/`**: Adaptadores de entrada (Experience API) con subpaquetes `dto/`, `mapper/` y rutas.
-- **`orchestration/{caso}/`**: Capa de proceso agnóstica que une inbound y outbound sobre el modelo canónico.
+- **`orchestration/`**: Capa de proceso agnóstica que une inbound y outbound sobre el modelo canónico.
 - **`outbound/{sistema}/`**: Adaptadores de salida (System API) hacia ERPs, Base de Datos, Kafka o APIs externas con subpaquetes `dto/`, `mapper/` y rutas.
 - **`shared/`**: Aspectos transversales (`error/`, `logging/`).
 

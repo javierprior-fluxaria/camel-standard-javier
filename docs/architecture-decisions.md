@@ -52,11 +52,11 @@ middleware-canonical-blueprint/
 │   ├── shared/                               # Cross-cutting: Errores RFC 7807, Correlación MDC, Utils
 │   ├── domain/                               # Núcleo Puro agnóstico a transporte
 │   │   ├── model/                            # Entidades canónicas (Records / POJOs puros)
-│   │   └── service/                          # Validaciones funcionales puras
+│   │   └── service/                          # Validaciones funcionales puras (Reglas de dominio)
 │   ├── inbound/                              # Capa Experience (Rest, Soap, Kafka Consumer)
 │   │   └── {canal}/                          # dto/, mapper/, routes...
 │   ├── orchestration/                        # Capa Process (Rutas de negocio agnósticas)
-│   │   └── {caso}/                           # Rutas direct/seda que unen inbound con outbound
+│   │   └── service/                          # Logica de proceso
 │   └── outbound/                             # Capa System (ERP, CRM, BD, APIs terceras)
 │       └── {sistema}/                        # dto/ propietario, mapper/, routes HTTP/JMS/RFC...
 └── src/main/resources/
@@ -255,26 +255,6 @@ Si algo falla, el llamante jamás recibe un volcado Java (`NullPointerException 
 
 ---
 
-### Opciones Descartadas y Por Qué
-
-#### A. Descartado: Dejar que las excepciones floten al contenedor (StackTrace Dump)
-* **Qué prometía:** No escribir código de gestión de excepciones.
-* **Por qué se descartó:** Brecha de seguridad grave (expone versiones de librerías, nombres de servidores y rutas de ficheros internos al cliente) y pésima experiencia para el consumidor de la API.
-
-#### B. Descartado: Reintentar indiscriminadamente cualquier error
-* **Qué prometía:** "Por si acaso funciona a la segunda".
-* **Por qué se descartó:** Si un mensaje tiene un error semántico o de validación (ej. falta el DNI o el total no cuadra), reintentar 5 veces es quemar CPU inútilmente, saturar los logs y retrasar la respuesta al cliente. Solo se reintentan fallos de transporte y de red transitorios.
-
-#### C. Descartado: Reintentos síncronos en memoria sin límite ni backoff
-* **Qué prometía:** `maximumRedeliveries(10)` seguidos sin delay.
-* **Por qué se descartó:** El efecto *Thundering Herd* o "martilleo". Si el ERP se cae por sobrecarga, miles de peticiones reintentando al instante sin espera destruyen cualquier posibilidad de que el ERP se recupere. El uso de exponential backoff con jitter es innegociable.
-
----
-
-Aquí tienes la respuesta técnica profunda para los puntos del **6 al 10**, completando el decálogo de la arquitectura estándar. Al igual que antes, cada decisión incluye su justificación práctica y el análisis de **las alternativas descartadas con sus motivos reales de descarte**.
-
----
-
 # 6. Configuración por Entorno y Gestión de Secretos
 
 ### Decisión Estándar
@@ -291,18 +271,6 @@ Aquí tienes la respuesta técnica profunda para los puntos del **6 al 10**, com
 ### ¿Por qué esta solución?
 * **Seguridad y Auditoría:** Separación estricta entre configuración operativa y secretos confidenciales. Si un desarrollador clona el repo, no puede comprometer credenciales de producción.
 * **Tipado Fuerte:** Con `@ConfigurationProperties`, si una URL o un timeout no están definidos o tienen un formato incorrecto, la aplicación **falla en el arranque (fail-fast)** con un mensaje explícito, en lugar de fallar en runtime durante la primera transacción en mitad de la noche.
-
----
-
-### Opciones Descartadas y Por Qué
-
-#### A. Descartado: Perfiles de Spring empaquetados en el JAR (`application-dev.yml`, `application-prod.yml`) con credenciales dentro
-* **Qué prometía:** Comodidad para desplegar con `--spring.profiles.active=prod`.
-* **Por qué se descartó:** Gravísimo fallo de seguridad (las credenciales de producción acaban en el historial de Git) y antipatrón de despliegue. No se debe recompilar ni tocar el paquete para cambiar de entorno.
-
-#### B. Descartado: Apache ZooKeeper / Spring Cloud Config Server dedicado
-* **Qué prometía:** Servidor centralizado de configuración dinámica en caliente.
-* **Por qué se descartó:** Introduce un punto único de fallo (SPOF) y añade una pieza de infraestructura pesada innecesaria. En arquitecturas modernas de contenedores, Kubernetes ya resuelve esto de forma nativa y robusta con ConfigMaps y Secrets.
 
 ---
 
@@ -424,7 +392,7 @@ Este es el manual del desarrollador del "primer día". El desarrollador no impro
    ▼
 [Paso 3] Definir la Lógica de Negocio y Orquestación
    │   • Crear servicio en domain/service/{Caso}BusinessValidator.java (100% Java puro con test JUnit)
-   │   • Crear ruta en orchestration/{caso}/{Caso}ProcessRoute.java
+   │   • Crear ruta en orchestration/{Caso}ProcessRoute.java
    │   • Enlazar validación y bifurcación (Choice/Multicast/Enricher)
    ▼
 [Paso 4] Implementar el Adaptador de Salida (Outbound)
@@ -493,11 +461,4 @@ Todo estándar arquitectónico representa un conjunto deliberado de compromisos 
   1. **Incompatibilidad de conceptos:** En canales asíncronos (brokers de eventos, colas o procesamiento por lotes), los conceptos de códigos de estado HTTP (`400`, `409`, `500`) y respuestas síncronas no tienen sentido semántico.
   2. **Dualidad de mecanismos:** El sistema se ve forzado a mantener dos estrategias dispares: traducción a JSON RFC 7807 para HTTP vs enrutamiento a Dead Letter Queue (DLQ) con cabeceras técnicas (`X-Failure-Reason`, `X-Failed-At`) para mensajería. Reutilizar la misma ruta de proceso entre ambos mundos requiere interceptores que distingan si la invocación proviene de un canal síncrono o asíncrono.
 
----
 
-### F. Ausencia de Barreras Físicas en el Monomódulo (Riesgo de Erosión de Arquitectura)
-
-* **El Trade-off:** Se eligió un proyecto mono-módulo Maven para evitar la sobrecarga de dependencias y tiempos de compilación de proyectos multi-módulo.
-* **La Limitación de Gobierno:**
-  1. **Falta de aislamiento a nivel de compilador:** El compilador de Java dentro de un único módulo no impide técnicamente que un desarrollador cometa atajos (ej. que una ruta de entrada invoque directamente una ruta de salida, o que un adaptador consuma directamente un DTO de otro adaptador).
-  2. **Dependencia estricta de auditoría:** Mantener la pureza de la arquitectura en equipos numerosos depende exclusivamente de la disciplina de los desarrolladores o de la incorporación obligatoria de herramientas de análisis estático de reglas arquitecturales (como **ArchUnit** en el pipeline de CI).

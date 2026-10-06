@@ -12,7 +12,7 @@ El proyecto sigue una arquitectura **Hexagonal (Ports and Adapters)** y **API-Le
 
 1. **Separación en 3 Capas de Integración:**
    - **`inbound/{canal}` (Experience API):** Traduce de protocolos de transporte externos (REST, SOAP, colas) al Modelo Canónico. Inyecta identificador de correlación.
-   - **`orchestration/{caso}` (Process API):** Coordina la lógica de negocio pura operando exclusivamente sobre el Modelo Canónico.
+   - **`orchestration/` (Process API):** Coordina la lógica de negocio pura operando exclusivamente sobre el Modelo Canónico.
    - **`outbound/{sistema}` (System API):** Adaptadores de salida hacia ERPs, bases de datos (PostgreSQL), mensajería (Kafka) o APIs REST externas.
 2. **Simetría Estricta de Mappers:**
    - Todo parsing, transformación o preparación de parámetros SQL vive exclusivamente en clases `@Component` en `{inbound|outbound}/{subsistema}/mapper/`.
