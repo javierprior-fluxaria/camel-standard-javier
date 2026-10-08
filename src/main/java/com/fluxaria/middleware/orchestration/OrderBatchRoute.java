@@ -114,7 +114,7 @@ public class OrderBatchRoute extends BaseRouteBuilder {
                     .setHeader("X-Failed-At", simple("${date:now:iso}"))
                 .end()
                 .choice()
-                    .when(exchangeProperty("orderFailed").isEqualTo(true))
+                    .when(simple("${exchangeProperty.orderFailed} == true"))
                         .to("direct:outbound.kafka.dlq")
                 .end();
     }

@@ -83,7 +83,6 @@ public class OrderKafkaProducerRoute extends BaseRouteBuilder {
                     if (key == null || key.isBlank()) {
                         key = exchange.getIn().getHeader(CorrelationIdProcessor.CORRELATION_HEADER, String.class);
                     }
-                    exchange.getIn().setHeader(KafkaConstants.KEY, key);
 
                     Object payload = exchange.getProperty("originalPayload");
                     if (payload == null) {
@@ -94,6 +93,11 @@ public class OrderKafkaProducerRoute extends BaseRouteBuilder {
                     } else if (payload != null) {
                         exchange.getIn().setBody(objectMapper.writeValueAsString(payload));
                     }
+
+                    // Limpiar cabeceras Kafka entrantes del consumidor para evitar colisiones de topic/particion
+                    exchange.getIn().removeHeaders("kafka.*");
+                    exchange.getIn().setHeader(KafkaConstants.KEY, key);
+                    exchange.getIn().setHeader(KafkaConstants.OVERRIDE_TOPIC, topicDlq);
                 })
                 .toD("kafka:" + topicDlq + "?brokers=" + kafkaBrokers)
                 .log(LoggingLevel.INFO, "Pedido fallido depositado en DLQ '" + topicDlq + "' exitosamente");
