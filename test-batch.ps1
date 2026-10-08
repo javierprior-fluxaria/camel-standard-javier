@@ -51,8 +51,8 @@ $batchPayload = @"
 ]
 "@
 
-# Compactar a una sola linea JSON para kafka-console-producer
-$compactJson = ($batchPayload | ConvertFrom-Json | ConvertTo-Json -Compress -Depth 5)
+# Compactar a una sola linea JSON para kafka-console-producer sin que PowerShell lo envuelva en un objeto
+$compactJson = ($batchPayload -replace "`r", "" -replace "`n", "").Trim()
 
 Write-Host "`n--> Publicando lote de prueba en topic 'orders.batch.in' (BatchId: $batchId)..." -ForegroundColor Yellow
 $compactJson | docker exec -i fluxaria-kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic orders.batch.in
@@ -62,11 +62,13 @@ Write-Host "Esperando 5 segundos para que Camel procese el lote asincrono..." -F
 Start-Sleep -Seconds 5
 
 Write-Host "`n--> Leyendo ultimo mensaje de topic 'orders.batch.summary'..." -ForegroundColor Yellow
-$summary = docker exec fluxaria-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders.batch.summary --from-beginning --timeout-ms 3000 --max-messages 1
+$allSummaries = docker exec fluxaria-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders.batch.summary --from-beginning --timeout-ms 8000
+$summary = ($allSummaries | Where-Object { $_ -match '"batchId"' })[-1]
 Write-Host "Resumen recibido: $summary" -ForegroundColor Cyan
 
 Write-Host "`n--> Leyendo mensajes desviados a Dead Letter Queue 'orders.dlq'..." -ForegroundColor Yellow
-$dlq = docker exec fluxaria-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders.dlq --from-beginning --timeout-ms 3000 --max-messages 2
+$allDlq = docker exec fluxaria-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders.dlq --from-beginning --timeout-ms 8000
+$dlq = ($allDlq | Where-Object { $_ -match '"orderId"' })
 Write-Host "Mensajes en DLQ: $dlq" -ForegroundColor Gray
 
 Write-Host "`n======================================================================" -ForegroundColor Cyan

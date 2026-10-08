@@ -1,5 +1,8 @@
 package com.fluxaria.middleware.inbound.kafka.mapper;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fluxaria.middleware.domain.model.Order;
 import com.fluxaria.middleware.domain.model.OrderItem;
 import com.fluxaria.middleware.inbound.kafka.dto.OrderBatchItemDto;
@@ -18,6 +21,9 @@ import java.util.UUID;
 @Component
 public class OrderBatchInboundMapper {
 
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
     public List<Order> toDomainList(OrderBatchItemDto[] dtos) {
         if (dtos == null) {
             return Collections.emptyList();
@@ -25,6 +31,47 @@ public class OrderBatchInboundMapper {
         return Arrays.stream(dtos)
                 .map(this::toDomain)
                 .toList();
+    }
+
+    public List<Order> toDomainList(Object body) {
+        if (body == null) {
+            return Collections.emptyList();
+        }
+        if (body instanceof OrderBatchItemDto[] dtos) {
+            return toDomainList(dtos);
+        }
+
+        try {
+            JsonNode root;
+            if (body instanceof String s) {
+                root = objectMapper.readTree(s);
+            } else if (body instanceof byte[] bytes) {
+                root = objectMapper.readTree(bytes);
+            } else {
+                root = objectMapper.valueToTree(body);
+            }
+
+            JsonNode arrayNode = root;
+            if (root.isObject()) {
+                if (root.has("value") && root.get("value").isArray()) {
+                    arrayNode = root.get("value");
+                } else if (root.has("orders") && root.get("orders").isArray()) {
+                    arrayNode = root.get("orders");
+                }
+            }
+
+            if (!arrayNode.isArray()) {
+                throw new IllegalArgumentException("Payload de lote invalido: se esperaba un array JSON o un objeto con propiedad 'value'/'orders'");
+            }
+
+            OrderBatchItemDto[] dtos = objectMapper.treeToValue(arrayNode, OrderBatchItemDto[].class);
+            return toDomainList(dtos);
+        } catch (Exception e) {
+            if (e instanceof RuntimeException re) {
+                throw re;
+            }
+            throw new IllegalArgumentException("Error al procesar payload de lote: " + e.getMessage(), e);
+        }
     }
 
     public Order toDomain(OrderBatchItemDto dto) {

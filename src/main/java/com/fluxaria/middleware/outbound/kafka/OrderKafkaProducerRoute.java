@@ -1,5 +1,6 @@
 package com.fluxaria.middleware.outbound.kafka;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fluxaria.middleware.domain.model.Order;
 import com.fluxaria.middleware.outbound.kafka.mapper.OrderKafkaMapper;
 import com.fluxaria.middleware.shared.error.BaseRouteBuilder;
@@ -38,6 +39,9 @@ public class OrderKafkaProducerRoute extends BaseRouteBuilder {
     @Autowired
     private OrderKafkaMapper orderKafkaMapper;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @Override
     public void setupRoutes() {
         // 1. Publicar pedido procesado individual
@@ -68,12 +72,29 @@ public class OrderKafkaProducerRoute extends BaseRouteBuilder {
         from("direct:outbound.kafka.dlq")
                 .routeId("outbound.kafka.dlq")
                 .log(LoggingLevel.WARN, "Desviando pedido fallido a Dead Letter Queue '" + topicDlq + "'. Motivo: ${header.X-Failure-Reason}")
-                .setHeader(KafkaConstants.KEY, simple("${header.X-Order-ID} != null ? ${header.X-Order-ID} : ${exchangeProperty.correlationId}"))
-                .setBody(exchangeProperty("originalPayload"))
-                .choice()
-                    .when(simple("${body} !is 'java.lang.String'"))
-                        .marshal().json()
-                .end()
+                .process(exchange -> {
+                    String key = exchange.getIn().getHeader("X-Order-ID", String.class);
+                    if (key == null || key.isBlank()) {
+                        key = exchange.getProperty("orderId", String.class);
+                    }
+                    if (key == null || key.isBlank()) {
+                        key = exchange.getProperty("correlationId", String.class);
+                    }
+                    if (key == null || key.isBlank()) {
+                        key = exchange.getIn().getHeader(CorrelationIdProcessor.CORRELATION_HEADER, String.class);
+                    }
+                    exchange.getIn().setHeader(KafkaConstants.KEY, key);
+
+                    Object payload = exchange.getProperty("originalPayload");
+                    if (payload == null) {
+                        payload = exchange.getIn().getBody();
+                    }
+                    if (payload instanceof String s) {
+                        exchange.getIn().setBody(s);
+                    } else if (payload != null) {
+                        exchange.getIn().setBody(objectMapper.writeValueAsString(payload));
+                    }
+                })
                 .toD("kafka:" + topicDlq + "?brokers=" + kafkaBrokers)
                 .log(LoggingLevel.INFO, "Pedido fallido depositado en DLQ '" + topicDlq + "' exitosamente");
     }

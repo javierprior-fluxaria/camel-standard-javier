@@ -98,13 +98,13 @@ public class OrderBatchRoute extends BaseRouteBuilder {
                             String reason = (result instanceof ErrorResponse err) ? err.detail() : ("HTTP " + httpCode + ": " + result);
                             exchange.getIn().setHeader("X-Failure-Reason", reason);
                             exchange.getIn().setHeader("X-Failed-At", Instant.now().toString());
-                            producerTemplate.send("direct:outbound.kafka.dlq", exchange);
                         } else if (result instanceof Order order) {
                             exchange.setProperty("orderFailed", false);
                             exchange.getIn().setBody(order);
                         } else {
                             exchange.setProperty("orderFailed", true);
-                            producerTemplate.send("direct:outbound.kafka.dlq", exchange);
+                            exchange.getIn().setHeader("X-Failure-Reason", "Unknown orchestration result");
+                            exchange.getIn().setHeader("X-Failed-At", Instant.now().toString());
                         }
                     })
                 .doCatch(Exception.class)
@@ -112,7 +112,10 @@ public class OrderBatchRoute extends BaseRouteBuilder {
                     .setProperty("orderFailed", constant(true))
                     .setHeader("X-Failure-Reason", simple("${exception.message}"))
                     .setHeader("X-Failed-At", simple("${date:now:iso}"))
-                    .to("direct:outbound.kafka.dlq")
+                .end()
+                .choice()
+                    .when(exchangeProperty("orderFailed").isEqualTo(true))
+                        .to("direct:outbound.kafka.dlq")
                 .end();
     }
 }

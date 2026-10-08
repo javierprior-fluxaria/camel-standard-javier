@@ -60,11 +60,13 @@ public class BatchAggregationService implements AggregationStrategy {
             summary.setTotalOrders(summary.getProcessedCount() + summary.getFailedCount());
         }
 
+        newExchange.setException(null);
         if (oldExchange == null) {
             newExchange.getIn().setBody(summary);
             return newExchange;
         }
 
+        oldExchange.setException(null);
         oldExchange.getIn().setBody(summary);
         return oldExchange;
     }
