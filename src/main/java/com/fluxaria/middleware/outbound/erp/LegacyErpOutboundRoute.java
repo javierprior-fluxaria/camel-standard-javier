@@ -35,13 +35,15 @@ public class LegacyErpOutboundRoute extends BaseRouteBuilder {
     private LegacyErpMapper legacyErpMapper;
 
     @Override
-    public void setupRoutes() {
-
+    protected void setupCustomErrorHandlers() {
         // Politica de reintentos para errores transitorios de red o 500 intermitente
         onException(HttpOperationFailedException.class)
                 .onWhen(exchange -> {
                     HttpOperationFailedException ex = exchange.getProperty(Exchange.EXCEPTION_CAUGHT, HttpOperationFailedException.class);
-                    return ex.getStatusCode() == 500 || ex.getStatusCode() == 502;
+                    if (ex == null) {
+                        ex = exchange.getException(HttpOperationFailedException.class);
+                    }
+                    return ex != null && (ex.getStatusCode() == 500 || ex.getStatusCode() == 502);
                 })
                 .maximumRedeliveries(2)
                 .redeliveryDelay(1000)
@@ -57,7 +59,10 @@ public class LegacyErpOutboundRoute extends BaseRouteBuilder {
                 .redeliveryDelay(500)
                 .logRetryStackTrace(false)
                 .log(LoggingLevel.WARN, "Reintentando llamada a Legacy ERP tras timeout de red...");
+    }
 
+    @Override
+    public void setupRoutes() {
         from(DIRECT_SUBMIT)
                 .routeId(ROUTE_ID)
                 .log(LoggingLevel.INFO, "Preparando envio al Legacy ERP para pedido ${body.orderId}...")
@@ -69,6 +74,7 @@ public class LegacyErpOutboundRoute extends BaseRouteBuilder {
 
                 // 2. Proteccion con Circuit Breaker Resilience4j
                 .circuitBreaker()
+                    .inheritErrorHandler(true)
                     .resilience4jConfiguration()
                         .failureRateThreshold(50)
                         .waitDurationInOpenState(5)

@@ -19,6 +19,9 @@ public abstract class BaseRouteBuilder extends RouteBuilder {
     @Override
     public void configure() throws Exception {
 
+        // 0. Hook prioritario para subclases (politicas de reintentos antes de capturadores globales)
+        setupCustomErrorHandlers();
+
         // 1. Errores funcionales de validacion de negocio -> HTTP 400 Bad Request
         onException(BusinessValidationException.class)
                 .handled(true)
@@ -31,6 +34,9 @@ public abstract class BaseRouteBuilder extends RouteBuilder {
         onException(DuplicateKeyException.class, SQLException.class)
                 .onWhen(exchange -> {
                     Exception ex = exchange.getProperty(Exchange.EXCEPTION_CAUGHT, Exception.class);
+                    if (ex == null) {
+                        ex = exchange.getException();
+                    }
                     return ex != null && ex.getMessage() != null && (ex.getMessage().contains("duplicate key") || ex.getMessage().contains("unique constraint"));
                 })
                 .handled(true)
@@ -43,6 +49,9 @@ public abstract class BaseRouteBuilder extends RouteBuilder {
         onException(HttpOperationFailedException.class)
                 .onWhen(exchange -> {
                     HttpOperationFailedException ex = exchange.getProperty(Exchange.EXCEPTION_CAUGHT, HttpOperationFailedException.class);
+                    if (ex == null) {
+                        ex = exchange.getException(HttpOperationFailedException.class);
+                    }
                     return ex != null && ex.getStatusCode() == 409;
                 })
                 .handled(true)
@@ -59,6 +68,14 @@ public abstract class BaseRouteBuilder extends RouteBuilder {
                 .process(buildProblemDetails(500, "https://api.fluxaria.com/errors/internal-error", "Internal Server Error", "Error interno no controlado"));
 
         setupRoutes();
+    }
+
+    /**
+     * Hook opcional para que clases hijas configuren clausulas onException prioritarias
+     * (por ejemplo politicas de reintentos) antes de las globales y del catch-all.
+     */
+    protected void setupCustomErrorHandlers() throws Exception {
+        // Implementacion por defecto vacia
     }
 
     /**
