@@ -25,50 +25,38 @@ public abstract class BaseRouteBuilder extends RouteBuilder {
                 .logHandled(true)
                 .logStackTrace(false)
                 .log(LoggingLevel.WARN, "Error de validacion de negocio: ${exception.message}")
-                .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(400))
-                .setHeader(Exchange.CONTENT_TYPE, constant("application/problem+json"))
-                .process(buildValidationProblemDetails())
-                .marshal().json();
+                .process(buildValidationProblemDetails());
 
         // 2. Errores de duplicidad en Base de Datos (Idempotencia SQL) -> HTTP 409 Conflict
         onException(DuplicateKeyException.class, SQLException.class)
                 .onWhen(exchange -> {
                     Exception ex = exchange.getProperty(Exchange.EXCEPTION_CAUGHT, Exception.class);
-                    return ex.getMessage() != null && (ex.getMessage().contains("duplicate key") || ex.getMessage().contains("unique constraint"));
+                    return ex != null && ex.getMessage() != null && (ex.getMessage().contains("duplicate key") || ex.getMessage().contains("unique constraint"));
                 })
                 .handled(true)
                 .logHandled(true)
                 .logStackTrace(false)
                 .log(LoggingLevel.WARN, "Idempotencia activada: Pedido duplicado en base de datos: ${exception.message}")
-                .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(409))
-                .setHeader(Exchange.CONTENT_TYPE, constant("application/problem+json"))
-                .process(buildProblemDetails(409, "https://api.fluxaria.com/errors/conflict", "Duplicate Resource Conflict", "El pedido ya existe en la base de datos y no se volvera a procesar."))
-                .marshal().json();
+                .process(buildProblemDetails(409, "https://api.fluxaria.com/errors/conflict", "Duplicate Resource Conflict", "El pedido ya existe en la base de datos y no se volvera a procesar."));
 
         // 3. Errores HTTP de backends (409 Conflict, 4xx, etc.)
         onException(HttpOperationFailedException.class)
                 .onWhen(exchange -> {
                     HttpOperationFailedException ex = exchange.getProperty(Exchange.EXCEPTION_CAUGHT, HttpOperationFailedException.class);
-                    return ex.getStatusCode() == 409;
+                    return ex != null && ex.getStatusCode() == 409;
                 })
                 .handled(true)
                 .logHandled(true)
                 .logStackTrace(false)
                 .log(LoggingLevel.WARN, "Conflicto de idempotencia / duplicado detectado en backend: ${exception.message}")
-                .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(409))
-                .setHeader(Exchange.CONTENT_TYPE, constant("application/problem+json"))
-                .process(buildProblemDetails(409, "https://api.fluxaria.com/errors/conflict", "Duplicate Resource Conflict", "El pedido ya existe en el sistema destino o ha sido procesado previamente."))
-                .marshal().json();
+                .process(buildProblemDetails(409, "https://api.fluxaria.com/errors/conflict", "Duplicate Resource Conflict", "El pedido ya existe en el sistema destino o ha sido procesado previamente."));
 
         // 4. Excepciones genericas no controladas -> HTTP 500 / 502
         onException(Exception.class)
                 .handled(true)
                 .logHandled(true)
                 .log(LoggingLevel.ERROR, "Error en flujo middleware: ${exception.message}")
-                .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(500))
-                .setHeader(Exchange.CONTENT_TYPE, constant("application/problem+json"))
-                .process(buildProblemDetails(500, "https://api.fluxaria.com/errors/internal-error", "Internal Server Error", "Error interno no controlado"))
-                .marshal().json();
+                .process(buildProblemDetails(500, "https://api.fluxaria.com/errors/internal-error", "Internal Server Error", "Error interno no controlado"));
 
         setupRoutes();
     }
@@ -79,8 +67,11 @@ public abstract class BaseRouteBuilder extends RouteBuilder {
     protected org.apache.camel.Processor buildProblemDetails(int status, String typeUrl, String title, String defaultDetail) {
         return exchange -> {
             Exception ex = exchange.getProperty(Exchange.EXCEPTION_CAUGHT, Exception.class);
+            if (ex == null) {
+                ex = exchange.getException();
+            }
             String correlationId = exchange.getProperty(CorrelationIdProcessor.MDC_CORRELATION_KEY, String.class);
-            String path = exchange.getIn().getHeader(Exchange.HTTP_URI, String.class);
+            String path = exchange.getMessage().getHeader(Exchange.HTTP_URI, String.class);
             String detail = (ex != null && ex.getMessage() != null) ? ex.getMessage() : defaultDetail;
 
             ErrorResponse response = ErrorResponse.of(
@@ -91,7 +82,9 @@ public abstract class BaseRouteBuilder extends RouteBuilder {
                     path != null ? path : "/api/v1/orders",
                     correlationId
             );
-            exchange.getIn().setBody(response);
+            exchange.getMessage().setBody(response);
+            exchange.getMessage().setHeader(Exchange.HTTP_RESPONSE_CODE, status);
+            exchange.getMessage().setHeader(Exchange.CONTENT_TYPE, "application/problem+json");
         };
     }
 
@@ -101,16 +94,24 @@ public abstract class BaseRouteBuilder extends RouteBuilder {
     protected org.apache.camel.Processor buildValidationProblemDetails() {
         return exchange -> {
             BusinessValidationException ex = exchange.getProperty(Exchange.EXCEPTION_CAUGHT, BusinessValidationException.class);
+            if (ex == null && exchange.getException() instanceof BusinessValidationException) {
+                ex = (BusinessValidationException) exchange.getException();
+            }
             String correlationId = exchange.getProperty(CorrelationIdProcessor.MDC_CORRELATION_KEY, String.class);
-            String path = exchange.getIn().getHeader(Exchange.HTTP_URI, String.class);
+            String path = exchange.getMessage().getHeader(Exchange.HTTP_URI, String.class);
+
+            String message = ex != null ? ex.getMessage() : "Error de validacion funcional";
+            java.util.List<String> errors = ex != null ? ex.getValidationErrors() : java.util.Collections.emptyList();
 
             ErrorResponse response = ErrorResponse.ofValidation(
-                    ex.getMessage(),
+                    message,
                     path != null ? path : "/api/v1/orders",
                     correlationId,
-                    ex.getValidationErrors()
+                    errors
             );
-            exchange.getIn().setBody(response);
+            exchange.getMessage().setBody(response);
+            exchange.getMessage().setHeader(Exchange.HTTP_RESPONSE_CODE, 400);
+            exchange.getMessage().setHeader(Exchange.CONTENT_TYPE, "application/problem+json");
         };
     }
 
