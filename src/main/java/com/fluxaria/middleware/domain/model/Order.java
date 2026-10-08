@@ -38,10 +38,10 @@ public class Order {
                  OrderStatus status,
                  Instant createdAt,
                  Instant updatedAt) {
-        this.orderId = Objects.requireNonNull(orderId, "orderId cannot be null");
-        this.customerId = Objects.requireNonNull(customerId, "customerId cannot be null");
-        this.countryIso2 = Objects.requireNonNull(countryIso2, "countryIso2 cannot be null");
-        this.currency = Objects.requireNonNull(currency, "currency cannot be null");
+        this.orderId = orderId;
+        this.customerId = customerId;
+        this.countryIso2 = countryIso2;
+        this.currency = currency;
         this.items = items != null ? List.copyOf(items) : Collections.emptyList();
         this.totalOriginal = totalOriginal != null ? totalOriginal : calculateCalculatedTotal();
         this.totalEur = totalEur;

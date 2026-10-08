@@ -3,6 +3,7 @@ package com.fluxaria.middleware.outbound.erp;
 import com.fluxaria.middleware.domain.model.Order;
 import com.fluxaria.middleware.outbound.erp.mapper.LegacyErpMapper;
 import com.fluxaria.middleware.shared.error.BaseRouteBuilder;
+import com.fluxaria.middleware.shared.model.ErrorResponse;
 import org.apache.camel.Exchange;
 import org.apache.camel.LoggingLevel;
 import org.apache.camel.http.base.HttpOperationFailedException;
@@ -87,8 +88,13 @@ public class LegacyErpOutboundRoute extends BaseRouteBuilder {
                 .end()
 
                 // 3. Al completarse con exito, actualizar el estado del dominio
-                .setBody(exchangeProperty("originalOrder"))
-                .bean(legacyErpMapper, "handleSuccess")
-                .log(LoggingLevel.INFO, "Respuesta exitosa de Legacy ERP para pedido ${body.orderId}");
+                .choice()
+                    .when(body().isInstanceOf(ErrorResponse.class))
+                        .log(LoggingLevel.WARN, "Llamada a Legacy ERP fallida (ErrorResponse detectado para pedido ${exchangeProperty.originalOrder.orderId})")
+                    .otherwise()
+                        .setBody(exchangeProperty("originalOrder"))
+                        .bean(legacyErpMapper, "handleSuccess")
+                        .log(LoggingLevel.INFO, "Respuesta exitosa de Legacy ERP para pedido ${body.orderId}")
+                .end();
     }
 }
