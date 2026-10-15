@@ -51,8 +51,8 @@ $batchPayload = @"
 ]
 "@
 
-# Compactar a una sola linea JSON para kafka-console-producer
-$compactJson = ($batchPayload | ConvertFrom-Json | ConvertTo-Json -Compress -Depth 5)
+# Compactar a una sola linea JSON para kafka-console-producer sin que PowerShell lo envuelva en un objeto
+$compactJson = ($batchPayload -replace "`r", "" -replace "`n", "").Trim()
 
 Write-Host "`n--> Publicando lote de prueba en topic 'orders.batch.in' (BatchId: $batchId)..." -ForegroundColor Yellow
 $compactJson | docker exec -i fluxaria-kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic orders.batch.in
@@ -62,12 +62,20 @@ Write-Host "Esperando 5 segundos para que Camel procese el lote asincrono..." -F
 Start-Sleep -Seconds 5
 
 Write-Host "`n--> Leyendo ultimo mensaje de topic 'orders.batch.summary'..." -ForegroundColor Yellow
-$summary = docker exec fluxaria-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders.batch.summary --from-beginning --timeout-ms 3000 --max-messages 1
+$summaryOutput = docker exec fluxaria-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders.batch.summary --from-beginning --timeout-ms 5000 2>&1
+$jsonSummaries = @($summaryOutput | Where-Object { $_ -match '^{\s*"batchId"' })
+$summary = if ($jsonSummaries.Count -gt 0) { $jsonSummaries[-1] } else { "No recibido aun" }
 Write-Host "Resumen recibido: $summary" -ForegroundColor Cyan
 
 Write-Host "`n--> Leyendo mensajes desviados a Dead Letter Queue 'orders.dlq'..." -ForegroundColor Yellow
-$dlq = docker exec fluxaria-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders.dlq --from-beginning --timeout-ms 3000 --max-messages 2
-Write-Host "Mensajes en DLQ: $dlq" -ForegroundColor Gray
+$dlqOutput = docker exec fluxaria-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders.dlq --from-beginning --timeout-ms 5000 2>&1
+$dlqMessages = @($dlqOutput | Where-Object { $_ -match '^{\s*"orderId"' -or $_ -match '^{\s*"value"' })
+if ($dlqMessages.Count -gt 0) {
+    Write-Host "[OK] Encontrados $($dlqMessages.Count) mensajes en DLQ:" -ForegroundColor Green
+    $dlqMessages | ForEach-Object { Write-Host " - $_" -ForegroundColor Gray }
+} else {
+    Write-Host "[INFO] Ningun mensaje en DLQ encontrado todavia." -ForegroundColor Gray
+}
 
 Write-Host "`n======================================================================" -ForegroundColor Cyan
 Write-Host "PRUEBA DEL FLUJO B COMPLETADA EXITOSAMENTE" -ForegroundColor Cyan

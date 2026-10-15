@@ -64,11 +64,9 @@ public class OrderBatchKafkaConsumerRoute extends BaseRouteBuilder {
                 })
                 .setProperty("originalPayload", body())
                 .doTry()
-                    // 1. Deserializar en DTOs tipados
-                    .unmarshal(jacksonDataFormat)
-                    // 2. Mapear a entidades de Dominio
+                    // 1. Mapear a entidades de Dominio (maneja array directo o envuelto en objeto)
                     .bean(batchInboundMapper, "toDomainList")
-                    // 3. Invocar al orquestador de lotes
+                    // 2. Invocar al orquestador de lotes
                     .to(OrderBatchRoute.DIRECT_PROCESS)
                 .doCatch(Exception.class)
                     .log(LoggingLevel.ERROR, "Fallo al deserializar lote de Kafka en topic '" + topicBatchIn + "': ${exception.message}")

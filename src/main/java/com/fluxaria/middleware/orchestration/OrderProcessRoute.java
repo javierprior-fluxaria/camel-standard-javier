@@ -5,6 +5,7 @@ import com.fluxaria.middleware.outbound.country.CountryEnricherRoute;
 import com.fluxaria.middleware.outbound.currency.CurrencyConversionRoute;
 import com.fluxaria.middleware.shared.error.BaseRouteBuilder;
 import com.fluxaria.middleware.shared.logging.CorrelationIdProcessor;
+import com.fluxaria.middleware.shared.model.ErrorResponse;
 import org.apache.camel.LoggingLevel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -51,12 +52,18 @@ public class OrderProcessRoute extends BaseRouteBuilder {
                 // 6. Envio al ERP Legacy con Resiliencia (Circuit Breaker + Retries + Timeouts)
                 .to("direct:outbound.erp.submit")
 
-                // 7. Persistencia final en PostgreSQL (CONFIRMED)
-                .to("direct:outbound.database.save-final")
+                // 7. Persistencia final y publicacion solo si no hubo error
+                .choice()
+                    .when(body().isInstanceOf(ErrorResponse.class))
+                        .log(LoggingLevel.WARN, "Fallo en envio a ERP para pedido. Cancelando persistencia final y publicacion en Kafka.")
+                    .otherwise()
+                        // 7. Persistencia final en PostgreSQL (CONFIRMED)
+                        .to("direct:outbound.database.save-final")
 
-                // 8. Publicacion del evento en Kafka (orders.processed)
-                .to("direct:outbound.kafka.publish")
+                        // 8. Publicacion del evento en Kafka (orders.processed)
+                        .to("direct:outbound.kafka.publish")
 
-                .log(LoggingLevel.INFO, "Orquestacion de pedido ${body.orderId} completada exitosamente.");
+                        .log(LoggingLevel.INFO, "Orquestacion de pedido ${body.orderId} completada exitosamente.")
+                .end();
     }
 }

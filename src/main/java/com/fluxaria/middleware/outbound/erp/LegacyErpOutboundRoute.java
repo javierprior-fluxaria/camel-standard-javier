@@ -3,6 +3,7 @@ package com.fluxaria.middleware.outbound.erp;
 import com.fluxaria.middleware.domain.model.Order;
 import com.fluxaria.middleware.outbound.erp.mapper.LegacyErpMapper;
 import com.fluxaria.middleware.shared.error.BaseRouteBuilder;
+import com.fluxaria.middleware.shared.model.ErrorResponse;
 import org.apache.camel.Exchange;
 import org.apache.camel.LoggingLevel;
 import org.apache.camel.http.base.HttpOperationFailedException;
@@ -35,13 +36,15 @@ public class LegacyErpOutboundRoute extends BaseRouteBuilder {
     private LegacyErpMapper legacyErpMapper;
 
     @Override
-    public void setupRoutes() {
-
+    protected void setupCustomErrorHandlers() {
         // Politica de reintentos para errores transitorios de red o 500 intermitente
         onException(HttpOperationFailedException.class)
                 .onWhen(exchange -> {
                     HttpOperationFailedException ex = exchange.getProperty(Exchange.EXCEPTION_CAUGHT, HttpOperationFailedException.class);
-                    return ex.getStatusCode() == 500 || ex.getStatusCode() == 502;
+                    if (ex == null) {
+                        ex = exchange.getException(HttpOperationFailedException.class);
+                    }
+                    return ex != null && (ex.getStatusCode() == 500 || ex.getStatusCode() == 502);
                 })
                 .maximumRedeliveries(2)
                 .redeliveryDelay(1000)
@@ -57,7 +60,10 @@ public class LegacyErpOutboundRoute extends BaseRouteBuilder {
                 .redeliveryDelay(500)
                 .logRetryStackTrace(false)
                 .log(LoggingLevel.WARN, "Reintentando llamada a Legacy ERP tras timeout de red...");
+    }
 
+    @Override
+    public void setupRoutes() {
         from(DIRECT_SUBMIT)
                 .routeId(ROUTE_ID)
                 .log(LoggingLevel.INFO, "Preparando envio al Legacy ERP para pedido ${body.orderId}...")
@@ -69,6 +75,7 @@ public class LegacyErpOutboundRoute extends BaseRouteBuilder {
 
                 // 2. Proteccion con Circuit Breaker Resilience4j
                 .circuitBreaker()
+                    .inheritErrorHandler(true)
                     .resilience4jConfiguration()
                         .failureRateThreshold(50)
                         .waitDurationInOpenState(5)
@@ -81,8 +88,13 @@ public class LegacyErpOutboundRoute extends BaseRouteBuilder {
                 .end()
 
                 // 3. Al completarse con exito, actualizar el estado del dominio
-                .setBody(exchangeProperty("originalOrder"))
-                .bean(legacyErpMapper, "handleSuccess")
-                .log(LoggingLevel.INFO, "Respuesta exitosa de Legacy ERP para pedido ${body.orderId}");
+                .choice()
+                    .when(body().isInstanceOf(ErrorResponse.class))
+                        .log(LoggingLevel.WARN, "Llamada a Legacy ERP fallida (ErrorResponse detectado para pedido ${exchangeProperty.originalOrder.orderId})")
+                    .otherwise()
+                        .setBody(exchangeProperty("originalOrder"))
+                        .bean(legacyErpMapper, "handleSuccess")
+                        .log(LoggingLevel.INFO, "Respuesta exitosa de Legacy ERP para pedido ${body.orderId}")
+                .end();
     }
 }

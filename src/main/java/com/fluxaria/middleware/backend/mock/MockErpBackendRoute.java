@@ -56,8 +56,9 @@ public class MockErpBackendRoute extends BaseRouteBuilder {
                             exchange.getMessage().setBody("{\"error\":\"Internal ERP Database Deadlock (transient)\"}");
                             return;
                         } else {
-                            log.info("[MOCK ERP] Escenario CUST-ERR500: intento exitoso #3 tras reintentos", attempt);
+                            log.info("[MOCK ERP] Escenario CUST-ERR500: intento exitoso #3 tras reintentos (intento #{})", attempt);
                             retryCount.set(0);
+                            registeredOrders.put(orderId, true);
                             exchange.getMessage().setHeader(Exchange.HTTP_RESPONSE_CODE, 200);
                             exchange.getMessage().setBody("{\"status\":\"OK\",\"erpReference\":\"ERP-RETRY-" + orderId + "\"}");
                             return;

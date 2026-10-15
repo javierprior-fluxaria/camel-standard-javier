@@ -14,10 +14,8 @@ public record OrderItem(
         BigDecimal subtotal
 ) {
     public OrderItem {
-        Objects.requireNonNull(productId, "productId cannot be null");
-        Objects.requireNonNull(unitPrice, "unitPrice cannot be null");
         if (subtotal == null) {
-            subtotal = unitPrice.multiply(BigDecimal.valueOf(quantity));
+            subtotal = unitPrice != null ? unitPrice.multiply(BigDecimal.valueOf(quantity)) : BigDecimal.ZERO;
         }
     }
 

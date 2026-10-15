@@ -5,6 +5,7 @@ import com.fluxaria.middleware.inbound.rest.mapper.OrderInboundMapper;
 import com.fluxaria.middleware.orchestration.OrderProcessRoute;
 import com.fluxaria.middleware.shared.error.BaseRouteBuilder;
 import com.fluxaria.middleware.shared.logging.CorrelationIdProcessor;
+import com.fluxaria.middleware.shared.model.ErrorResponse;
 import org.apache.camel.Exchange;
 import org.apache.camel.LoggingLevel;
 import org.apache.camel.model.rest.RestBindingMode;
@@ -54,9 +55,14 @@ public class OrderRestRoute extends BaseRouteBuilder {
                 // 3. Delegar en el Orquestador
                 .to(OrderProcessRoute.DIRECT_PROCESS)
 
-                // 4. Mapear Modelo Canonico procesado al DTO de salida
-                .bean(inboundMapper, "toResponseDto")
-                .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(201))
-                .log(LoggingLevel.INFO, "Respondiendo 201 Created para pedido: ${body.orderId}");
+                // 4. Mapear Modelo Canonico procesado al DTO de salida solo en caso de exito
+                .choice()
+                    .when(body().isInstanceOf(ErrorResponse.class))
+                        // Si ya es una respuesta de error generada por onException, se devuelve directamente
+                    .otherwise()
+                        .bean(inboundMapper, "toResponseDto")
+                        .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(201))
+                        .log(LoggingLevel.INFO, "Respondiendo 201 Created para pedido: ${body.orderId}")
+                .end();
     }
 }
